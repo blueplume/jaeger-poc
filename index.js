@@ -2,6 +2,7 @@ const express = require('express')
 const opentracing = require("opentracing");
 const request = require('request-promise-native');
 const initTracer = require('jaeger-client').initTracer;
+const SpanContext = require('jaeger-client').SpanContext;
 const processor = require('./processor');
 const parent = require('./routes/parent')
 const child = require('./routes/child')
@@ -17,7 +18,7 @@ const config = {
 
 const options = {
   'tags': {
-    'svc.version': '1.0'
+    'express.version': '1.0'
   },
   // 'metrics': metrics,
   // 'logger': logger
@@ -28,25 +29,25 @@ opentracing.initGlobalTracer(initTracer(config, options));
 let app = express()
 
 function injectTraceSpan(req, res, next) {
-  console.error('1', req.headers)
   const tracer = opentracing.globalTracer()
-  let parentContext
-  if (req.get('tracecontext')) parentContext = JSON.parse(req.get('tracecontext'))
-  console.error('heck', req.get('tracecontext'))
-  req.traceSpan = tracer.startSpan('svc', { childOf: parentContext });
+  req.traceSpan = tracer.startSpan('express', { childOf: req.parentContext });
+
+  console.error(777, req.headers)
+  if (req.get('uber-trace-id')) req.parentContext = SpanContext.fromString(req.get('uber-trace-id'))
+    else req.parentContext = req.traceSpan.context()
+
   req.traceSpan.setTag(opentracing.Tags.SAMPLING_PRIORITY, 1);
   // req.traceSpan.log({'event': `start: ${req.headers['correlation-id']}`})
-  const headers = { 'correlation-id': req.get('correlation-id')};
-  tracer.inject(req.traceSpan, opentracing.FORMAT_HTTP_HEADERS, headers);
+  const headers = { 'correlation-id': req.get('correlation-id') };
+  // tracer.inject(req.traceSpan, opentracing.FORMAT_HTTP_HEADERS, headers);
+  console.error('sendingout: ', headers)
   req.chainOn = request.defaults({
     headers
   })
-  // req.chainOn = request
   next()  
 }
 
 function wrapupTraceSpan( req, res, next ) {
-  console.log('DONE')
   if (req.traceSpan) {
     // req.traceSpan.log({'event': `end: ${req.headers['correlation-id']}`})
     req.traceSpan.finish()
@@ -56,9 +57,9 @@ function wrapupTraceSpan( req, res, next ) {
 
 app.use(injectTraceSpan)
 
-app.use(parent)
-
 app.use(child)
+
+app.use(parent)
 
 app.use(wrapupTraceSpan);
 
