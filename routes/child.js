@@ -23,13 +23,12 @@ const options = {
 const childTracer = initTracer(config, options)
 
 router.get('/child', async function (req, res, next) {
-  const traceSpan = childTracer.startSpan('child-timeout', { childOf: req.parentContext });
+  const traceSpan = childTracer.startSpan('child-timeout', { childOf: res.traceStack.parentContext });
   traceSpan.log({'event': `start: child`})
   setTimeout(() => {
     res.send(' done-child ')
     traceSpan.log({'event': `end: child`})
     traceSpan.finish()
-    next(); // important, as otherwise the traceSpan will not work
   }, 1000)
 })
 

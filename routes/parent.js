@@ -1,6 +1,7 @@
 const express = require('express')
 const initTracer = require('jaeger-client').initTracer;
 const opentracing = require("opentracing");
+const request = require('request-promise-native');
 
 const router = express.Router()
 
@@ -22,23 +23,16 @@ const options = {
 
 const parentTracer = initTracer(config, options)
 
-router.get('/parent', function (req, res, next) {
-  const parentSpan = parentTracer.startSpan('parent-call', { childOf: req.parentContext });
+router.get('/parent', async function (req, res, next) {
+  const parentSpan = parentTracer.startSpan('parent-call', { childOf: res.traceStack.parentContext });
   parentSpan.setTag(opentracing.Tags.SAMPLING_PRIORITY, 1);
-  setTimeout(async () => {
-    parentSpan.log({ 'event': 'start parent' })
-    const headers = {}
-    parentTracer.inject(parentSpan, opentracing.FORMAT_HTTP_HEADERS, headers)
-    console.error('should-be: ', headers)
-    const response = await
-      req.chainOn
-        .defaults({ headers })
-        ('http://localhost:3000/child');
-    parentSpan.log({ 'event': 'end parent' })
-    parentSpan.finish()
-    res.send('done-parent {' + response + '}')
-    next();
-  }, 1000)
+  parentSpan.log({ 'event': 'start parent' })
+  const headers = {}
+  parentTracer.inject(parentSpan, opentracing.FORMAT_HTTP_HEADERS, headers)
+  const response = await request('http://localhost:3000/child', { headers });
+  parentSpan.log({ 'event': 'end parent' })
+  parentSpan.finish()
+  res.send('done-parent {' + response + '}')
 })
 
 module.exports = router
